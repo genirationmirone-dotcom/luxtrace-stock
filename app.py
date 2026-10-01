@@ -3,15 +3,6 @@ from flask_sqlalchemy import SQLAlchemy
 import os
 import csv
 import io
-import re
-from PIL import Image
-
-try:
-    import pytesseract
-    pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
-    OCR_AVAILABLE = True
-except:
-    OCR_AVAILABLE = False
 
 app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///marouane_stock_permanent.db'
@@ -69,12 +60,12 @@ def index():
     logo_file = get_logo_filename()
     
     return render_template_string(HTML_TEMPLATE, 
-                                  products=products, 
-                                  expenses=expenses,
-                                  total_expenses=total_expenses, 
-                                  total_personal=total_personal,
-                                  search_query=search_query,
-                                  logo_file=logo_file)
+                                products=products, 
+                                expenses=expenses,
+                                total_expenses=total_expenses, 
+                                total_personal=total_personal,
+                                search_query=search_query,
+                                logo_file=logo_file)
 
 @app.route('/add', methods=['POST'])
 def add_product():
@@ -86,66 +77,26 @@ def add_product():
     status = request.form.get('status', 'Disponible')
     
     invoice_filename = ""
-    extracted_items = []
-    
     if 'invoice' in request.files:
         inv_file = request.files['invoice']
         if inv_file.filename != '':
             invoice_filename = "inv_" + inv_file.filename
             inv_path = os.path.join(app.config['UPLOAD_FOLDER'], invoice_filename)
             inv_file.save(inv_path)
-            
-            # قراءة الفاتورة وتحليل المنتجات المتعددة أوتوماتيكياً إذا كانت الصورة متوفرة وOCR خدام
-            if OCR_AVAILABLE:
-                try:
-                    file_ext = inv_file.filename.lower()
-                    if file_ext.endswith(('.png', '.jpg', '.jpeg', '.webp')):
-                        img = Image.open(inv_path)
-                        text = pytesseract.image_to_string(img, lang='fra+eng')
-                        lines = [l.strip() for l in text.split('\n') if l.strip()]
-                        
-                        for line in lines:
-                            # محاولة البحث عن الأثمنة والأرقام في الأسطر لاستخراج المنتجات تلقائياً
-                            # مثال: يبحث عن أسطر تحتوي على كلمات وأثمنة بالأرقام
-                            prices_found = re.findall(r'\d+[\.,]\d{2}', line)
-                            if prices_found and len(line) > 5:
-                                p_val = float(prices_found[-1].replace(',', '.'))
-                                # تنظيف السطر من الثمن للحصول على اسم المنتج
-                                p_name = re.sub(r'\d+[\.,]\d{2}', '', line).strip()
-                                if len(p_name) > 2:
-                                    extracted_items.append({'name': p_name, 'price': p_val})
-                except Exception as e:
-                    print("Multi-Item OCR Extraction Error:", e)
 
-    # إذا استخرجنا منتجات متعددة من الفاتورة ولم يتم إدخال منتج يدوي، نضيفهم كلهم للجدول
-    if extracted_items and not name:
-        for item in extracted_items:
-            new_p = Product(
-                name=item['name'][:100], 
-                category=category, 
-                price=item['price'], 
-                quantity=1, 
-                status=status, 
-                image="", 
-                invoice=invoice_filename
-            )
-            db.session.add(new_p)
-    else:
-        # الإدخال العادي (منتج واحد أو يدوي)
-        if not name:
-            name = os.path.splitext(inv_file.filename)[0].replace('_', ' ').capitalize() if invoice_filename else "Produit Sans Nom"
-            
-        new_p = Product(
-            name=name, 
-            category=category, 
-            price=price, 
-            quantity=quantity, 
-            status=status, 
-            image="", 
-            invoice=invoice_filename
-        )
-        db.session.add(new_p)
-
+    if not name:
+        name = "Produit Sans Nom"
+        
+    new_p = Product(
+        name=name, 
+        category=category, 
+        price=price, 
+        quantity=quantity, 
+        status=status, 
+        image="", 
+        invoice=invoice_filename
+    )
+    db.session.add(new_p)
     db.session.commit()
     return redirect(url_for('index'))
 
@@ -207,7 +158,7 @@ HTML_TEMPLATE = """
             {% if logo_file %}
                 <img src="{{ url_for('static', filename='uploads/' + logo_file) }}" alt="Logo">
             {% endif %}
-            <h1>Gestion de Stock & Factures (Multi-Produits Auto)</h1>
+            <h1>Gestion de Stock & Factures</h1>
         </div>
         <a href="/export_report" style="background:#8e44ad; color:white; padding:10px 15px; border-radius:5px; text-decoration:none;">📥 Télécharger Rapport CSV</a>
     </div>
@@ -231,21 +182,21 @@ HTML_TEMPLATE = """
         {% endif %}
     </form>
 
-    <h2>Ajouter un Produit / Facture (Extraction Automatique des Lignes)</h2>
+    <h2>Ajouter un Produit / Facture</h2>
     <form method="POST" action="/add" enctype="multipart/form-data">
-        <input type="text" name="name" placeholder="Nom (Laisser vide pour extraction auto)">
+        <input type="text" name="name" placeholder="Nom du produit">
         <input type="text" name="category" placeholder="Catégorie">
-        <input type="number" step="0.01" name="price" placeholder="Prix (€) (Optionnel si facture)">
+        <input type="number" step="0.01" name="price" placeholder="Prix (€)">
         <input type="number" name="quantity" placeholder="Quantité" value="1">
         <select name="status">
             <option value="Disponible">Disponible</option>
             <option value="Reçu">Reçu</option>
         </select>
         <div style="flex:1; min-width:180px;">
-            <label style="font-size:11px; display:block; color:#555;">Facture Multi-Produits (JPG):</label>
+            <label style="font-size:11px; display:block; color:#555;">Facture (JPG/PNG):</label>
             <input type="file" name="invoice" accept=".jpg, .jpeg, .png">
         </div>
-        <button type="submit">Analyser & Enregistrer</button>
+        <button type="submit">Enregistrer</button>
     </form>
 
     <h2>Inventaire des Produits</h2>
@@ -328,5 +279,4 @@ HTML_TEMPLATE = """
 """
 
 if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port)
+    app.run(debug=True)
