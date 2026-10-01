@@ -26,7 +26,13 @@ def load_data():
         return initial_data
     try:
         with open(DATA_FILE, 'r', encoding='utf-8') as f:
-            return json.load(f)
+            data = json.load(f)
+            # التأكد من وجود جميع المفاتيح الأساسية باش ما يوقعش أي خطأ أو ضياع للبيانات القديمة
+            if "users" not in data: data["users"] = [{"username": "marouane", "password": "123"}, {"username": "hamza", "password": "123"}]
+            if "products" not in data: data["products"] = []
+            if "expenses" not in data: data["expenses"] = []
+            if "logs" not in data: data["logs"] = []
+            return data
     except:
         return {"users": [{"username": "marouane", "password": "123"}, {"username": "hamza", "password": "123"}], "products": [], "expenses": [], "logs": []}
 
@@ -416,7 +422,7 @@ EDIT_PRODUCT_TEMPLATE = """
             
             <button type="submit">Enregistrer les modifications</button>
         </form>
-        <a href="/" class="link">⬅️ Annuler et retour</a>
+        <a href="/" class="link">⬅️️ Annuler et retour</a>
     </div>
 </body>
 </html>
@@ -437,11 +443,11 @@ HTML_TEMPLATE = """
         .logo-title img { width: 60px; height: 60px; border-radius: 50%; object-fit: cover; border: 2px solid #2980b9; }
         h1 { color: #2c3e50; margin: 0; font-size: 24px; }
         .header-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-        form { background: #f9f9f9; padding: 15px; border-radius: 8px; border: 1px solid #e1e1e1; margin-bottom: 20px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
-        form input, form select { padding: 10px; border: 1px solid #ccc; border-radius: 5px; flex: 1; min-width: 130px; }
-        form button { background: #27ae60; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; font-weight: bold; }
+        form.inline-form { background: #f9f9f9; padding: 15px; border-radius: 8px; border: 1px solid #e1e1e1; margin-bottom: 15px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+        form.inline-form input, form.inline-form select { padding: 10px; border: 1px solid #ccc; border-radius: 5px; flex: 1; min-width: 130px; }
+        form.inline-form button { background: #27ae60; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; font-weight: bold; }
         .table-responsive { width: 100%; overflow-x: auto; }
-        table { width: 100%; border-collapse: collapse; margin-top: 15px; min-width: 600px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 5px; min-width: 600px; }
         th, td { border: 1px solid #ddd; padding: 12px; text-align: center; }
         th { background: #2980b9; color: white; }
         .stats { display: flex; gap: 20px; margin-bottom: 20px; flex-wrap: wrap; }
@@ -477,7 +483,7 @@ HTML_TEMPLATE = """
             </div>
         </div>
         <div class="header-actions">
-            <a href="/export_report" style="background:#16a085; color:white; padding:8px 12px; border-radius:5px; text-decoration:none; font-weight:bold; font-size:13px;">📥 Rapport</a>
+            <a href="/export_report" style="background:#16a085; color:white; padding:8px 12px; border-radius:5px; text-decoration:none; font-weight:bold; font-size:13px;">📥 Rapport CSV</a>
             <a href="/change_password" class="btn-pass">🔑 Changer Code</a>
             <a href="/logout" class="btn-logout">Déconnexion 🚪</a>
         </div>
@@ -494,7 +500,7 @@ HTML_TEMPLATE = """
         </div>
     </div>
 
-    <form method="GET" action="/" style="background: #f1f4f6;">
+    <form method="GET" action="/" class="inline-form" style="background: #f1f4f6;">
         <input type="text" name="search" placeholder="Rechercher par Nom ou ID..." value="{{ search_query }}">
         <button type="submit" style="background: #2980b9;">Rechercher</button>
         {% if search_query %}
@@ -502,15 +508,14 @@ HTML_TEMPLATE = """
         {% endif %}
     </form>
 
-    <!-- SECTION 1: PRODUITS & STOCK (COLLAPSIBLE) -->
+    <!-- SECTION 1: AJOUT PRODUIT (COLLAPSIBLE) -->
     <div class="collapsible-section">
-        <button type="button" class="collapsible-btn" onclick="toggleSection('section-products')">
-            <span>📦 1. Gestion des Produits & Inventaire (Cliquer pour ouvrir/fermer)</span>
+        <button type="button" class="collapsible-btn" onclick="toggleSection('section-add-product')">
+            <span>➕ 1. Ajouter un Nouveau Produit / Facture (Cliquer pour ouvrir/fermer)</span>
             <span>▼</span>
         </button>
-        <div id="section-products" class="collapsible-content active">
-            <h3 style="margin-top:0; color:#2c3e50;">Ajouter un Produit / Facture</h3>
-            <form method="POST" action="/add" enctype="multipart/form-data">
+        <div id="section-add-product" class="collapsible-content">
+            <form method="POST" action="/add" enctype="multipart/form-data" class="inline-form" style="margin-bottom:0; border:none; background:none; padding:0;">
                 <input type="text" name="name" placeholder="Nom du produit" required>
                 <input type="text" name="category" placeholder="Catégorie" required>
                 <input type="number" step="0.01" name="price" placeholder="Prix (€)" required>
@@ -525,8 +530,16 @@ HTML_TEMPLATE = """
                 </div>
                 <button type="submit">Enregistrer</button>
             </form>
+        </div>
+    </div>
 
-            <h3 style="color:#2c3e50;">Inventaire des Produits</h3>
+    <!-- SECTION 2: LISTE DES PRODUITS (COLLAPSIBLE SEPARÉMENT) -->
+    <div class="collapsible-section">
+        <button type="button" class="collapsible-btn" onclick="toggleSection('section-products-list')" style="background: #2980b9;">
+            <span>📦 2. Liste et Inventaire des Produits (Cliquer pour ouvrir/fermer)</span>
+            <span>▼</span>
+        </button>
+        <div id="section-products-list" class="collapsible-content active">
             <div class="table-responsive">
                 <table>
                     <thead>
@@ -595,15 +608,14 @@ HTML_TEMPLATE = """
         </div>
     </div>
 
-    <!-- SECTION 2: DEPENSES PERSONNELLES (COLLAPSIBLE) -->
+    <!-- SECTION 3: AJOUT DEPENSE (COLLAPSIBLE) -->
     <div class="collapsible-section">
-        <button type="button" class="collapsible-btn" onclick="toggleSection('section-expenses')" style="background: #d35400;">
-            <span>💰 2. Gestion des Dépenses Personnelles (Cliquer pour ouvrir/fermer)</span>
+        <button type="button" class="collapsible-btn" onclick="toggleSection('section-add-expense')" style="background: #d35400;">
+            <span>➕ 3. Ajouter une Dépense Personnelle (Cliquer pour ouvrir/fermer)</span>
             <span>▼</span>
         </button>
-        <div id="section-expenses" class="collapsible-content">
-            <h3 style="margin-top:0; color:#d35400;">Ajouter une Dépense Personnelle</h3>
-            <form method="POST" action="/add_expense" enctype="multipart/form-data">
+        <div id="section-add-expense" class="collapsible-content">
+            <form method="POST" action="/add_expense" enctype="multipart/form-data" class="inline-form" style="margin-bottom:0; border:none; background:none; padding:0;">
                 <input type="date" name="date" required>
                 <input type="number" step="0.01" name="amount" placeholder="Montant (€)" required>
                 <input type="text" name="note" placeholder="Note / Description">
@@ -613,8 +625,16 @@ HTML_TEMPLATE = """
                 </div>
                 <button type="submit" style="background: #e67e22;">Ajouter Dépense</button>
             </form>
+        </div>
+    </div>
 
-            <h3 style="color:#d35400;">Liste des Dépenses</h3>
+    <!-- SECTION 4: LISTE DES DEPENSES (COLLAPSIBLE SEPARÉMENT) -->
+    <div class="collapsible-section">
+        <button type="button" class="collapsible-btn" onclick="toggleSection('section-expenses-list')" style="background: #e67e22;">
+            <span>💰 4. Liste des Dépenses Personnelles (Cliquer pour ouvrir/fermer)</span>
+            <span>▼</span>
+        </button>
+        <div id="section-expenses-list" class="collapsible-content">
             <div class="table-responsive">
                 <table>
                     <thead>
