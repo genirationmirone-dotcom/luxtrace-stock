@@ -5,7 +5,13 @@ import csv
 import io
 
 app = Flask(__name__)
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///marouane_hamza_full_track.db'
+
+# --- تعديل قاعدة البيانات لتشتغل مع Render (PostgreSQL) أو محلياً ---
+database_url = os.environ.get('DATABASE_URL')
+if database_url and database_url.startswith('postgres://'):
+    database_url = database_url.replace('postgres://', 'postgresql://', 1)
+
+app.config['SQLALCHEMY_DATABASE_URI'] = database_url or 'sqlite:///marouane_hamza_full_track.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['UPLOAD_FOLDER'] = 'static/uploads'
 app.secret_key = 'marouane_hamza_full_track_key_2026'
@@ -19,7 +25,7 @@ class User(db.Model):
     username = db.Column(db.String(50), unique=True, nullable=False)
     password = db.Column(db.String(100), nullable=False)
 
-# جدول المنتجات مع تتبع شكون زادو وشكون مسحو (في حالة أرشيف الحذف أو إظهاره)
+# جدول المنتجات مع تتبع شكون زادو وشكون مسحو
 class Product(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
@@ -138,7 +144,7 @@ def index():
         products = Product.query.all()
         
     expenses = PersonalExpense.query.all()
-    logs = ActivityLog.query.order_by(ActivityLog.id.desc()).limit(15).all() # آخر 15 نشاط للتتبع
+    logs = ActivityLog.query.order_by(ActivityLog.id.desc()).limit(15).all()
     
     total_personal = sum(exp.amount for exp in expenses)
     total_expenses = sum(p.price * p.quantity for p in products)
@@ -512,11 +518,11 @@ HTML_TEMPLATE = """
         </table>
     </div>
 
-    <!-- سجل الأنشطة والعمليات (مراقبة من أضاف ومن مسح) -->
+    <!-- سجل الأنشطة والعمليات -->
     <h3 style="margin-top: 40px; color: #2c3e50;">📋 Journal d'activité (Qui a fait quoi ?)</h3>
     <div class="log-box">
         {% for log in logs %}
-            <div>[{{ log.timestamp }}] <b>{{ log.username }}</b> -> [{{ log.action }}]: {{ log.details }}</div>
+            <div>[{{ log.timestamp }}] <b>{{ log.username }}</b> -> [{{ log.action }ل}]: {{ log.details }}</div>
         {% else %}
             <div>Aucune activité enregistrée pour le moment.</div>
         {% endfor %}
