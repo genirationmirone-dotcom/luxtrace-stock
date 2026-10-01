@@ -1,66 +1,49 @@
 from flask import Flask, render_template_string, request, redirect, url_for, Response, session
-from flask_sqlalchemy import SQLAlchemy
 import os
 import csv
-import io
+import json
+import datetime
 
 app = Flask(__name__)
-
-# --- إعداد قاعدة البيانات لتشتغل مع Render (PostgreSQL) أو محلياً ---
-database_url = os.environ.get('DATABASE_URL')
-if database_url and database_url.startswith('postgres://'):
-    database_url = database_url.replace('postgres://', 'postgresql://', 1)
-
-app.config['SQLALCHEMY_DATABASE_URI'] = database_url or 'sqlite:///marouane_hamza_full_track.db'
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.secret_key = 'marouane_hamza_json_track_key_2026'
 app.config['UPLOAD_FOLDER'] = 'static/uploads'
-app.secret_key = 'marouane_hamza_full_track_key_2026'
-
-db = SQLAlchemy(app)
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
-# جدول المستخدمين
-class User(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(50), unique=True, nullable=False)
-    password = db.Column(db.String(100), nullable=False)
+DATA_FILE = 'database_storage.json'
 
-# جدول المنتجات
-class Product(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(100), nullable=False)
-    category = db.Column(db.String(50), nullable=False)
-    price = db.Column(db.Float, nullable=False)
-    quantity = db.Column(db.Integer, nullable=False)
-    status = db.Column(db.String(50), nullable=False)
-    image = db.Column(db.String(200), nullable=True)
-    invoice = db.Column(db.String(200), nullable=True)
-    added_by = db.Column(db.String(50), nullable=True)
+# تحميل البيانات من ملف JSON
+def load_data():
+    if not os.path.exists(DATA_FILE):
+        initial_data = {
+            "users": [
+                {"username": "marouane", "password": "123"},
+                {"username": "hamza", "password": "123"}
+            ],
+            "products": [],
+            "expenses": [],
+            "logs": []
+        }
+        save_data(initial_data)
+        return initial_data
+    try:
+        with open(DATA_FILE, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except:
+        return {"users": [{"username": "marouane", "password": "123"}, {"username": "hamza", "password": "123"}], "products": [], "expenses": [], "logs": []}
 
-# جدول المصاريف الشخصية
-class PersonalExpense(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    date = db.Column(db.String(20), nullable=False)
-    amount = db.Column(db.Float, nullable=False)
-    note = db.Column(db.String(200), nullable=True)
-    invoice = db.Column(db.String(200), nullable=True)
-    added_by = db.Column(db.String(50), nullable=True)
+# حفظ البيانات في ملف JSON
+def save_data(data):
+    with open(DATA_FILE, 'w', encoding='utf-8') as f:
+        json.dump(data, f, ensure_ascii=False, indent=4)
 
-# جدول سجل العمليات (History)
-class ActivityLog(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    timestamp = db.Column(db.String(30), nullable=False)
-    username = db.Column(db.String(50), nullable=False)
-    action = db.Column(db.String(50), nullable=False)
-    details = db.Column(db.String(255), nullable=False)
-
-with app.app_context():
-    db.create_all()
-    if not User.query.filter_by(username='marouane').first():
-        db.session.add(User(username='marouane', password='123'))
-    if not User.query.filter_by(username='hamza').first():
-        db.session.add(User(username='hamza', password='123'))
-    db.session.commit()
+def log_action(username, action, details):
+    data = load_data()
+    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    new_log = {"timestamp": now, "username": username, "action": action, "details": details}
+    data["logs"].insert(0, new_log)
+    # الاحتفاظ فقط بآخر 50 نشاط
+    data["logs"] = data["logs"][:50]
+    save_data(data)
 
 def get_logo_filename():
     if not os.path.exists(app.config['UPLOAD_FOLDER']):
@@ -73,23 +56,17 @@ def get_logo_filename():
             return f
     return None
 
-def log_action(username, action, details):
-    import datetime
-    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    log = ActivityLog(timestamp=now, username=username, action=action, details=details)
-    db.session.add(log)
-    db.session.commit()
-
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     error = None
     if request.method == 'POST':
         username = request.form.get('username')
         password = request.form.get('password')
-        user = User.query.filter_by(username=username, password=password).first()
+        data = load_data()
+        user = next((u for u in data["users"] if u["username"] == username and u["password"] == password), None)
         if user:
             session['logged_in'] = True
-            session['username'] = user.username
+            session['username'] = user["username"]
             return redirect(url_for('index'))
         else:
             error = "Nom d'utilisateur ou mot de passe incorrect !"
@@ -108,17 +85,18 @@ def change_password():
         confirm_pass = request.form.get('confirm_password')
         
         current_username = session.get('username')
-        user = User.query.filter_by(username=current_username).first()
+        data = load_data()
         
-        if user.password != old_pass:
+        user = next((u for u in data["users"] if u["username"] == current_username), None)
+        if not user or user["password"] != old_pass:
             error = "L'ancien mot de passe est incorrect !"
         elif not new_pass or len(new_pass.strip()) == 0:
             error = "Veuillez entrer un nouveau mot de passe valide."
         elif new_pass != confirm_pass:
             error = "Les nouveaux mots de passe ne correspondent pas !"
         else:
-            user.password = new_pass.strip()
-            db.session.commit()
+            user["password"] = new_pass.strip()
+            save_data(data)
             success = "Mot de passe modifié avec succès !"
             
     return render_template_string(CHANGE_PASSWORD_TEMPLATE, error=error, success=success)
@@ -134,20 +112,18 @@ def index():
     if not session.get('logged_in'):
         return redirect(url_for('login'))
         
-    search_query = request.args.get('search', '')
-    if search_query:
-        products = Product.query.filter(
-            (Product.name.contains(search_query)) | 
-            (Product.id.like(f"%{search_query}%"))
-        ).all()
-    else:
-        products = Product.query.all()
-        
-    expenses = PersonalExpense.query.all()
-    logs = ActivityLog.query.order_by(ActivityLog.id.desc()).limit(15).all()
+    data = load_data()
+    search_query = request.args.get('search', '').lower()
     
-    total_personal = sum(exp.amount for exp in expenses)
-    total_expenses = sum(p.price * p.quantity for p in products)
+    products = data["products"]
+    if search_query:
+        products = [p for p in products if search_query in p['name'].lower() or search_query in str(p['id'])]
+        
+    expenses = data["expenses"]
+    logs = data["logs"][:15]
+    
+    total_personal = sum(float(exp.get('amount', 0)) for exp in expenses)
+    total_expenses = sum(float(p.get('price', 0)) * int(p.get('quantity', 1)) for p in products)
     logo_file = get_logo_filename()
     
     return render_template_string(HTML_TEMPLATE, 
@@ -156,7 +132,7 @@ def index():
                                 logs=logs,
                                 total_expenses=total_expenses, 
                                 total_personal=total_personal,
-                                search_query=search_query,
+                                search_query=request.args.get('search', ''),
                                 logo_file=logo_file,
                                 current_user=session.get('username'))
 
@@ -178,9 +154,22 @@ def add_product():
             invoice_filename = "inv_" + inv_file.filename
             inv_file.save(os.path.join(app.config['UPLOAD_FOLDER'], invoice_filename))
 
-    new_p = Product(name=name or "Produit", category=category, price=price, quantity=quantity, status=status, image="", invoice=invoice_filename, added_by=current_user)
-    db.session.add(new_p)
-    db.session.commit()
+    data = load_data()
+    new_id = 1 if not data["products"] else max(p['id'] for p in data["products"]) + 1
+    
+    new_p = {
+        "id": new_id,
+        "name": name or "Produit",
+        "category": category,
+        "price": price,
+        "quantity": quantity,
+        "status": status,
+        "invoice": invoice_filename,
+        "added_by": current_user
+    }
+    
+    data["products"].append(new_p)
+    save_data(data)
     
     log_action(current_user, "AJOUT", f"Ajout du produit: {name} (Prix: {price}€)")
     return redirect(url_for('index'))
@@ -201,9 +190,20 @@ def add_expense():
             inv_filename = "exp_" + file.filename
             file.save(os.path.join(app.config['UPLOAD_FOLDER'], inv_filename))
             
-    new_exp = PersonalExpense(date=date, amount=amount, note=note, invoice=inv_filename, added_by=current_user)
-    db.session.add(new_exp)
-    db.session.commit()
+    data = load_data()
+    new_id = 1 if not data["expenses"] else max(e['id'] for e in data["expenses"]) + 1
+    
+    new_exp = {
+        "id": new_id,
+        "date": date,
+        "amount": amount,
+        "note": note,
+        "invoice": inv_filename,
+        "added_by": current_user
+    }
+    
+    data["expenses"].append(new_exp)
+    save_data(data)
     
     log_action(current_user, "AJOUT", f"Ajout dépense personnelle: {amount}€ ({note})")
     return redirect(url_for('index'))
@@ -213,12 +213,14 @@ def delete_product(id):
     if not session.get('logged_in'):
         return redirect(url_for('login'))
     current_user = session.get('username', 'Inconnu')
-    product = Product.query.get_or_404(id)
+    data = load_data()
     
-    log_action(current_user, "SUPPRESSION", f"Suppression du produit [ID: {product.id}] {product.name} (Ajouté par: {product.added_by})")
-    
-    db.session.delete(product)
-    db.session.commit()
+    product = next((p for p in data["products"] if p['id'] == id), None)
+    if product:
+        log_action(current_user, "SUPPRESSION", f"Suppression du produit [ID: {id}] {product['name']}")
+        data["products"] = [p for p in data["products"] if p['id'] != id]
+        save_data(data)
+        
     return redirect(url_for('index'))
 
 @app.route('/delete_expense/<int:id>', methods=['POST'])
@@ -226,23 +228,29 @@ def delete_expense(id):
     if not session.get('logged_in'):
         return redirect(url_for('login'))
     current_user = session.get('username', 'Inconnu')
-    expense = PersonalExpense.query.get_or_404(id)
+    data = load_data()
     
-    log_action(current_user, "SUPPRESSION", f"Suppression dépense [ID: {expense.id}] Montant: {expense.amount}€ (Ajouté par: {expense.added_by})")
-    
-    db.session.delete(expense)
-    db.session.commit()
+    expense = next((e for e in data["expenses"] if e['id'] == id), None)
+    if expense:
+        log_action(current_user, "SUPPRESSION", f"Suppression dépense [ID: {id}] Montant: {expense['amount']}€")
+        data["expenses"] = [e for e in data["expenses"] if e['id'] != id]
+        save_data(data)
+        
     return redirect(url_for('index'))
 
 @app.route('/export_report')
 def export_report():
     if not session.get('logged_in'):
         return redirect(url_for('login'))
+    data = load_data()
+    output = io_StringIO = csv_output()
+    # استخدام وحدة io لإنشاء ملف CSV
+    import io
     output = io.StringIO()
     writer = csv.writer(output)
     writer.writerow(['ID', 'Nom', 'Categorie', 'Prix', 'Quantite', 'Statut', 'Ajoute par'])
-    for p in Product.query.all():
-        writer.writerow([p.id, p.name, p.category, p.price, p.quantity, p.status, p.added_by])
+    for p in data["products"]:
+        writer.writerow([p['id'], p['name'], p['category'], p['price'], p['quantity'], p['status'], p['added_by']])
     output.seek(0)
     return Response(output, mimetype="text/csv", headers={"Content-Disposition": "attachment;filename=Rapport_Stock.csv"})
 
@@ -518,7 +526,7 @@ HTML_TEMPLATE = """
         </table>
     </div>
 
-    <h3 style="margin-top: 40px; color: #2c3e50;">📋 Journal d'activité (Qui a fait quoi ?)</h3>
+    <h3 style="margin-top: 40px; code; color: #2c3e50;">📋 Journal d'activité (Qui a fait quoi ?)</h3>
     <div class="log-box">
         {% for log in logs %}
             <div>[{{ log.timestamp }}] <b>{{ log.username }}</b> -> [{{ log.action }}]: {{ log.details }}</div>
@@ -532,4 +540,4 @@ HTML_TEMPLATE = """
 """
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(debug=True)ٍ
