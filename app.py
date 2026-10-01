@@ -1,712 +1,186 @@
-from flask import Flask, render_template_string, request, redirect, url_for, Response, session
-import os
-import csv
-import json
-import datetime
-
-app = Flask(__name__)
-app.secret_key = 'marouane_hamza_json_track_key_2026'
-app.config['UPLOAD_FOLDER'] = 'static/uploads'
-os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
-
-DATA_FILE = 'database_storage.json'
-
-def load_data():
-    if not os.path.exists(DATA_FILE):
-        initial_data = {
-            "users": [
-                {"username": "marouane", "password": "123"},
-                {"username": "hamza", "password": "123"}
-            ],
-            "products": [],
-            "expenses": [],
-            "logs": []
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>إدارة المنتجات - Morocco in Paris</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f4f6f9;
+            margin: 0;
+            padding: 20px;
+            color: #333;
         }
-        save_data(initial_data)
-        return initial_data
-    try:
-        with open(DATA_FILE, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-            # التأكد من وجود جميع المفاتيح الأساسية باش ما يوقعش أي خطأ أو ضياع للبيانات القديمة
-            if "users" not in data: data["users"] = [{"username": "marouane", "password": "123"}, {"username": "hamza", "password": "123"}]
-            if "products" not in data: data["products"] = []
-            if "expenses" not in data: data["expenses"] = []
-            if "logs" not in data: data["logs"] = []
-            return data
-    except:
-        return {"users": [{"username": "marouane", "password": "123"}, {"username": "hamza", "password": "123"}], "products": [], "expenses": [], "logs": []}
-
-def save_data(data):
-    with open(DATA_FILE, 'w', encoding='utf-8') as f:
-        json.dump(data, f, ensure_ascii=False, indent=4)
-
-def log_action(username, action, details):
-    data = load_data()
-    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    new_log = {"timestamp": now, "username": username, "action": action, "details": details}
-    data["logs"].insert(0, new_log)
-    data["logs"] = data["logs"][:50]
-    save_data(data)
-
-def get_logo_filename():
-    if not os.path.exists(app.config['UPLOAD_FOLDER']):
-        return None
-    for f in os.listdir(app.config['UPLOAD_FOLDER']):
-        if f.lower().startswith('logo') and f.lower().endswith(('.png', '.jpg', '.jpeg', '.webp')):
-            return f
-    for f in os.listdir(app.config['UPLOAD_FOLDER']):
-        if f.lower().endswith(('.png', '.jpg', '.jpeg', '.webp')):
-            return f
-    return None
-
-@app.route('/login', methods=['GET', 'POST'])
-def login():
-    error = None
-    if request.method == 'POST':
-        username = request.form.get('username')
-        password = request.form.get('password')
-        data = load_data()
-        user = next((u for u in data["users"] if u["username"] == username and u["password"] == password), None)
-        if user:
-            session['logged_in'] = True
-            session['username'] = user["username"]
-            return redirect(url_for('index'))
-        else:
-            error = "Nom d'utilisateur ou mot de passe incorrect !"
-    return render_template_string(LOGIN_TEMPLATE, error=error)
-
-@app.route('/change_password', methods=['GET', 'POST'])
-def change_password():
-    if not session.get('logged_in'):
-        return redirect(url_for('login'))
-    
-    error = None
-    success = None
-    if request.method == 'POST':
-        old_pass = request.form.get('old_password')
-        new_pass = request.form.get('new_password')
-        confirm_pass = request.form.get('confirm_password')
-        
-        current_username = session.get('username')
-        data = load_data()
-        
-        user = next((u for u in data["users"] if u["username"] == current_username), None)
-        if not user or user["password"] != old_pass:
-            error = "L'ancien mot de passe est incorrect !"
-        elif not new_pass or len(new_pass.strip()) == 0:
-            error = "Veuillez entrer un nouveau mot de passe valide."
-        elif new_pass != confirm_pass:
-            error = "Les nouveaux mots de passe ne correspondent pas !"
-        else:
-            user["password"] = new_pass.strip()
-            save_data(data)
-            success = "Mot de passe modifié avec succès !"
-            
-    return render_template_string(CHANGE_PASSWORD_TEMPLATE, error=error, success=success)
-
-@app.route('/logout')
-def logout():
-    session.pop('logged_in', None)
-    session.pop('username', None)
-    return redirect(url_for('login'))
-
-@app.route('/', methods=['GET'])
-def index():
-    if not session.get('logged_in'):
-        return redirect(url_for('login'))
-        
-    data = load_data()
-    search_query = request.args.get('search', '').lower()
-    
-    products = data["products"]
-    if search_query:
-        products = [p for p in products if search_query in p['name'].lower() or search_query in str(p['id'])]
-        
-    expenses = data["expenses"]
-    logs = data["logs"][:15]
-    
-    total_personal = sum(float(exp.get('amount', 0)) for exp in expenses)
-    total_expenses = sum(float(p.get('price', 0)) * int(p.get('quantity', 1)) for p in products)
-    logo_file = get_logo_filename()
-    
-    return render_template_string(HTML_TEMPLATE, 
-                                products=products, 
-                                expenses=expenses,
-                                logs=logs,
-                                total_expenses=total_expenses, 
-                                total_personal=total_personal,
-                                search_query=request.args.get('search', ''),
-                                logo_file=logo_file,
-                                current_user=session.get('username'))
-
-@app.route('/add', methods=['POST'])
-def add_product():
-    if not session.get('logged_in'):
-        return redirect(url_for('login'))
-    name = request.form.get('name', '').strip()
-    category = request.form.get('category', 'Général').strip()
-    price = float(request.form.get('price') or 0.0)
-    quantity = int(request.form.get('quantity') or 1)
-    status = request.form.get('status', 'Disponible')
-    current_user = session.get('username', 'marouane')
-    
-    invoice_filename = ""
-    if 'invoice' in request.files:
-        inv_file = request.files['invoice']
-        if inv_file.filename != '':
-            invoice_filename = "inv_" + inv_file.filename
-            inv_file.save(os.path.join(app.config['UPLOAD_FOLDER'], invoice_filename))
-
-    data = load_data()
-    new_id = 1 if not data["products"] else max(p['id'] for p in data["products"]) + 1
-    
-    new_p = {
-        "id": new_id,
-        "name": name or "Produit",
-        "category": category,
-        "price": price,
-        "quantity": quantity,
-        "status": status,
-        "invoice": invoice_filename,
-        "added_by": current_user,
-        "last_edited_by": "-"
-    }
-    
-    data["products"].append(new_p)
-    save_data(data)
-    
-    log_action(current_user, "AJOUT", f"Ajout du produit: {name} (Prix: {price}€)")
-    return redirect(url_for('index'))
-
-@app.route('/edit_product/<int:id>', methods=['GET', 'POST'])
-def edit_product(id):
-    if not session.get('logged_in'):
-        return redirect(url_for('login'))
-    
-    data = load_data()
-    product = next((p for p in data["products"] if p['id'] == id), None)
-    if not product:
-        return redirect(url_for('index'))
-        
-    current_user = session.get('username', 'Inconnu')
-    error = None
-    
-    if request.method == 'POST':
-        name = request.form.get('name', '').strip()
-        category = request.form.get('category', '').strip()
-        try:
-            price = float(request.form.get('price') or 0.0)
-            quantity = int(request.form.get('quantity') or 1)
-        except ValueError:
-            error = "Veuillez entrer des valeurs valides pour le prix et la quantité."
-            return render_template_string(EDIT_PRODUCT_TEMPLATE, product=product, error=error)
-            
-        status = request.form.get('status', 'Disponible')
-        
-        invoice_filename = product.get('invoice', '')
-        if 'invoice' in request.files:
-            inv_file = request.files['invoice']
-            if inv_file.filename != '':
-                invoice_filename = "inv_edit_" + inv_file.filename
-                inv_file.save(os.path.join(app.config['UPLOAD_FOLDER'], invoice_filename))
-                
-        product['name'] = name
-        product['category'] = category
-        product['price'] = price
-        product['quantity'] = quantity
-        product['status'] = status
-        product['invoice'] = invoice_filename
-        product['last_edited_by'] = current_user
-        
-        save_data(data)
-        log_action(current_user, "MODIFICATION", f"Modification du produit [ID: {id}] {name} (Modifié par {current_user})")
-        return redirect(url_for('index'))
-        
-    return render_template_string(EDIT_PRODUCT_TEMPLATE, product=product, error=error)
-
-@app.route('/add_expense', methods=['POST'])
-def add_expense():
-    if not session.get('logged_in'):
-        return redirect(url_for('login'))
-    date = request.form.get('date', '')
-    amount = float(request.form.get('amount') or 0.0)
-    note = request.form.get('note', '')
-    current_user = session.get('username', 'marouane')
-    
-    inv_filename = ""
-    if 'invoice' in request.files:
-        file = request.files['invoice']
-        if file.filename != '':
-            inv_filename = "exp_" + file.filename
-            file.save(os.path.join(app.config['UPLOAD_FOLDER'], inv_filename))
-            
-    data = load_data()
-    new_id = 1 if not data["expenses"] else max(e['id'] for e in data["expenses"]) + 1
-    
-    new_exp = {
-        "id": new_id,
-        "date": date,
-        "amount": amount,
-        "note": note,
-        "invoice": inv_filename,
-        "added_by": current_user
-    }
-    
-    data["expenses"].append(new_exp)
-    save_data(data)
-    
-    log_action(current_user, "AJOUT", f"Ajout dépense personnelle: {amount}€ ({note})")
-    return redirect(url_for('index'))
-
-@app.route('/delete_product/<int:id>', methods=['POST'])
-def delete_product(id):
-    if not session.get('logged_in'):
-        return redirect(url_for('login'))
-    current_user = session.get('username', 'Inconnu')
-    data = load_data()
-    
-    product = next((p for p in data["products"] if p['id'] == id), None)
-    if product:
-        log_action(current_user, "SUPPRESSION", f"Suppression du produit [ID: {id}] {product['name']}")
-        data["products"] = [p for p in data["products"] if p['id'] != id]
-        save_data(data)
-        
-    return redirect(url_for('index'))
-
-@app.route('/delete_expense/<int:id>', methods=['POST'])
-def delete_expense(id):
-    if not session.get('logged_in'):
-        return redirect(url_for('login'))
-    current_user = session.get('username', 'Inconnu')
-    data = load_data()
-    
-    expense = next((e for e in data["expenses"] if e['id'] == id), None)
-    if expense:
-        log_action(current_user, "SUPPRESSION", f"Suppression dépense [ID: {id}] Montant: {expense['amount']}€")
-        data["expenses"] = [e for e in data["expenses"] if e['id'] != id]
-        save_data(data)
-        
-    return redirect(url_for('index'))
-
-@app.route('/export_report')
-def export_report():
-    if not session.get('logged_in'):
-        return redirect(url_for('login'))
-    data = load_data()
-    import io
-    output = io.StringIO()
-    writer = csv.writer(output)
-    writer.writerow(['ID', 'Nom', 'Categorie', 'Prix', 'Quantite', 'Statut', 'Ajoute par', 'Dernier modificateur'])
-    for p in data["products"]:
-        writer.writerow([p['id'], p['name'], p['category'], p['price'], p['quantity'], p['status'], p['added_by'], p.get('last_edited_by', '-')])
-    output.seek(0)
-    return Response(output, mimetype="text/csv", headers={"Content-Disposition": "attachment;filename=Rapport_Stock.csv"})
-
-LOGIN_TEMPLATE = """
-<!DOCTYPE html>
-<html lang="fr">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Connexion - Marouane & Hamza</title>
-    <style>
-        body { font-family: Arial, sans-serif; background: #2c3e50; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
-        .card { background: white; padding: 30px; border-radius: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.3); width: 100%; max-width: 350px; text-align: center; }
-        h2 { color: #2c3e50; margin-bottom: 20px; }
-        input { width: 100%; padding: 12px; margin: 10px 0; border: 1px solid #ccc; border-radius: 5px; box-sizing: border-box; }
-        button { background: #27ae60; color: white; border: none; padding: 12px; width: 100%; border-radius: 5px; cursor: pointer; font-weight: bold; font-size: 16px; margin-top: 10px; }
-        button:hover { background: #219653; }
-        .error { color: #e74c3c; font-size: 14px; margin-bottom: 10px; }
-        .info-accounts { background: #f8f9fa; padding: 10px; border-radius: 5px; margin-bottom: 15px; font-size: 13px; color: #555; text-align: left; }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: #fff;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+        }
+        h2 {
+            text-align: center;
+            color: #2c3e50;
+            margin-bottom: 20px;
+        }
+        form {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            border: 1px solid #e9ecef;
+        }
+        form input, form select, form button {
+            padding: 10px;
+            font-size: 14px;
+            border: 1px solid #ced4da;
+            border-radius: 5px;
+            outline: none;
+        }
+        form button {
+            background-color: #28a745;
+            color: white;
+            border: none;
+            cursor: pointer;
+            font-weight: bold;
+            grid-column: span 2;
+        }
+        form button:hover {
+            background-color: #218838;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+        table th, table td {
+            border: 1px solid #dee2e6;
+            padding: 12px;
+            text-align: center;
+            font-size: 14px;
+        }
+        table th {
+            background-color: #343a40;
+            color: white;
+        }
+        table tr:nth-child(even) {
+            background-color: #f8f9fa;
+        }
+        .badge {
+            padding: 5px 10px;
+            border-radius: 4px;
+            color: white;
+            font-size: 12px;
+        }
+        .badge-ordered { background-color: #ffc107; color: #333; }
+        .badge-ready { background-color: #28a745; }
+        .badge-way { background-color: #17a2b8; }
+        .delete-btn {
+            background-color: #dc3545;
+            color: white;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .delete-btn:hover {
+            background-color: #c82333;
+        }
     </style>
 </head>
 <body>
-    <div class="card">
-        <h2>🔒 Connexion</h2>
-        <div class="info-accounts">
-            <b>Comptes disponibles :</b><br>
-            - <code>marouane</code> (Mot de passe: <code>123</code>)<br>
-            - <code>hamza</code> (Mot de passe: <code>123</code>)
-        </div>
-        {% if error %}<div class="error">{{ error }}</div>{% endif %}
-        <form method="POST">
-            <input type="text" name="username" placeholder="Nom d'utilisateur" required autocomplete="off">
-            <input type="password" name="password" placeholder="Mot de passe" required>
-            <button type="submit">Se connecter</button>
-        </form>
-    </div>
-</body>
-</html>
-"""
 
-CHANGE_PASSWORD_TEMPLATE = """
-<!DOCTYPE html>
-<html lang="fr">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Changer le mot de passe</title>
-    <style>
-        body { font-family: Arial, sans-serif; background: #2c3e50; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
-        .card { background: white; padding: 30px; border-radius: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.3); width: 100%; max-width: 350px; text-align: center; }
-        h2 { color: #2c3e50; margin-bottom: 20px; }
-        input { width: 100%; padding: 12px; margin: 10px 0; border: 1px solid #ccc; border-radius: 5px; box-sizing: border-box; }
-        button { background: #e67e22; color: white; border: none; padding: 12px; width: 100%; border-radius: 5px; cursor: pointer; font-weight: bold; font-size: 16px; margin-top: 10px; }
-        button:hover { background: #d35400; }
-        .error { color: #e74c3c; font-size: 14px; margin-bottom: 10px; }
-        .success { color: #27ae60; font-size: 14px; margin-bottom: 10px; }
-        .link { margin-top: 15px; display: block; font-size: 14px; color: #2980b9; text-decoration: none; }
-    </style>
-</head>
-<body>
-    <div class="card">
-        <h2>🔑 Modifier Mot de Passe</h2>
-        {% if error %}<div class="error">{{ error }}</div>{% endif %}
-        {% if success %}<div class="success">{{ success }}</div>{% endif %}
-        <form method="POST">
-            <input type="password" name="old_password" placeholder="Ancien mot de passe" required>
-            <input type="password" name="new_password" placeholder="Nouveau mot de passe" required>
-            <input type="password" name="confirm_password" placeholder="Confirmer le nouveau" required>
-            <button type="submit">Mettre à jour</button>
-        </form>
-        <a href="/" class="link">⬅️ Retour à l'accueil</a>
-    </div>
-</body>
-</html>
-"""
-
-EDIT_PRODUCT_TEMPLATE = """
-<!DOCTYPE html>
-<html lang="fr">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Modifier Produit - ID {{ product.id }}</title>
-    <style>
-        body { font-family: Arial, sans-serif; background: #2c3e50; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
-        .card { background: white; padding: 30px; border-radius: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.3); width: 100%; max-width: 400px; }
-        h2 { color: #2c3e50; margin-bottom: 20px; text-align: center; }
-        label { font-size: 12px; color: #555; display: block; margin-top: 8px; }
-        input, select { width: 100%; padding: 10px; margin: 5px 0 10px 0; border: 1px solid #ccc; border-radius: 5px; box-sizing: border-box; }
-        button { background: #2980b9; color: white; border: none; padding: 12px; width: 100%; border-radius: 5px; cursor: pointer; font-weight: bold; font-size: 16px; margin-top: 10px; }
-        button:hover { background: #1f618d; }
-        .error { color: #e74c3c; font-size: 14px; margin-bottom: 10px; text-align: center; }
-        .link { margin-top: 15px; display: block; font-size: 14px; color: #2980b9; text-decoration: none; text-align: center; }
-    </style>
-</head>
-<body>
-    <div class="card">
-        <h2>✏️ Modifier le Produit #{{ product.id }}</h2>
-        {% if error %}<div class="error">{{ error }}</div>{% endif %}
-        <form method="POST" enctype="multipart/form-data">
-            <label>Nom du produit :</label>
-            <input type="text" name="name" value="{{ product.name }}" required>
-            
-            <label>Catégorie :</label>
-            <input type="text" name="category" value="{{ product.category }}" required>
-            
-            <label>Prix (€) :</label>
-            <input type="number" step="0.01" name="price" value="{{ product.price }}" required>
-            
-            <label>Quantité :</label>
-            <input type="number" name="quantity" value="{{ product.quantity }}" required>
-            
-            <label>Statut :</label>
-            <select name="status">
-                <option value="Disponible" {% if product.status == 'Disponible' %}selected{% endif %}>Disponible</option>
-                <option value="Reçu" {% if product.status == 'Reçu' %}selected{% endif %}>Reçu</option>
-            </select>
-            
-            <label>Nouvelle Facture / Image (Optionnel) :</label>
-            <input type="file" name="invoice" accept=".jpg, .jpeg, .png">
-            
-            <button type="submit">Enregistrer les modifications</button>
-        </form>
-        <a href="/" class="link">⬅️️ Annuler et retour</a>
-    </div>
-</body>
-</html>
-"""
-
-HTML_TEMPLATE = """
-<!DOCTYPE html>
-<html lang="fr">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gestion Stock - Marouane & Hamza</title>
-    <style>
-        body { font-family: Arial, sans-serif; background: #f4f7f6; margin: 0; padding: 20px; color: #333; }
-        .container { max-width: 1200px; margin: auto; background: white; padding: 25px; border-radius: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
-        .header-flex { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #eee; padding-bottom: 10px; margin-bottom: 20px; flex-wrap: wrap; gap: 10px;}
-        .logo-title { display: flex; align-items: center; gap: 15px; }
-        .logo-title img { width: 60px; height: 60px; border-radius: 50%; object-fit: cover; border: 2px solid #2980b9; }
-        h1 { color: #2c3e50; margin: 0; font-size: 24px; }
-        .header-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-        form.inline-form { background: #f9f9f9; padding: 15px; border-radius: 8px; border: 1px solid #e1e1e1; margin-bottom: 15px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
-        form.inline-form input, form.inline-form select { padding: 10px; border: 1px solid #ccc; border-radius: 5px; flex: 1; min-width: 130px; }
-        form.inline-form button { background: #27ae60; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; font-weight: bold; }
-        .table-responsive { width: 100%; overflow-x: auto; }
-        table { width: 100%; border-collapse: collapse; margin-top: 5px; min-width: 600px; }
-        th, td { border: 1px solid #ddd; padding: 12px; text-align: center; }
-        th { background: #2980b9; color: white; }
-        .stats { display: flex; gap: 20px; margin-bottom: 20px; flex-wrap: wrap; }
-        .card-stat { background: #e8f4f8; padding: 15px; border-radius: 8px; flex: 1; min-width: 200px; border-left: 5px solid #2980b9; }
-        .btn-danger { background: #e74c3c; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 13px; text-decoration: none; }
-        .btn-danger:hover { background: #c0392b; }
-        .btn-edit { background: #2980b9; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 13px; text-decoration: none; display: inline-block; }
-        .btn-edit:hover { background: #1f618d; }
-        .btn-logout { background: #c0392b; color: white; padding: 8px 12px; border-radius: 5px; text-decoration: none; font-weight: bold; font-size: 13px; }
-        .btn-pass { background: #e67e22; color: white; padding: 8px 12px; border-radius: 5px; text-decoration: none; font-weight: bold; font-size: 13px; }
-        .badge-marouane { background: #2980b9; color: white; padding: 4px 8px; border-radius: 12px; font-size: 11px; font-weight: bold; }
-        .badge-hamza { background: #8e44ad; color: white; padding: 4px 8px; border-radius: 12px; font-size: 11px; font-weight: bold; }
-        .log-box { background: #2c3e50; color: #ecf0f1; padding: 15px; border-radius: 8px; max-height: 200px; overflow-y: auto; font-family: monospace; font-size: 12px; margin-top: 30px; }
-        
-        /* Accordion / Collapsible Sections Style */
-        .collapsible-section { margin-bottom: 20px; border: 1px solid #cbd5e1; border-radius: 8px; overflow: hidden; background: #fff; }
-        .collapsible-btn { background: #34495e; color: white; cursor: pointer; padding: 15px 20px; width: 100%; border: none; text-align: left; outline: none; font-size: 16px; font-weight: bold; display: flex; justify-content: space-between; align-items: center; transition: background 0.3s; }
-        .collapsible-btn:hover { background: #2c3e50; }
-        .collapsible-content { padding: 20px; display: none; background: #fff; border-top: 1px solid #cbd5e1; }
-        .collapsible-content.active { display: block; }
-    </style>
-</head>
-<body>
 <div class="container">
-    <div class="header-flex">
-        <div class="logo-title">
-            {% if logo_file %}
-                <img src="{{ url_for('static', filename='uploads/' + logo_file) }}" alt="Logo">
-            {% endif %}
-            <div>
-                <h1>Gestion de Stock & Dépenses</h1>
-                <small style="color: #666;">Connecté en tant que: <b>{{ current_user }}</b></small>
-            </div>
-        </div>
-        <div class="header-actions">
-            <a href="/export_report" style="background:#16a085; color:white; padding:8px 12px; border-radius:5px; text-decoration:none; font-weight:bold; font-size:13px;">📥 Rapport CSV</a>
-            <a href="/change_password" class="btn-pass">🔑 Changer Code</a>
-            <a href="/logout" class="btn-logout">Déconnexion 🚪</a>
-        </div>
-    </div>
+    <h2>إدارة تتبع المنتجات - Morocco in Paris</h2>
 
-    <div class="stats">
-        <div class="card-stat">
-            <h3>Total Dépenses Stock</h3>
-            <p style="font-size: 20px; font-weight: bold; color: #2c3e50;">€ {{ "%.2f"|format(total_expenses) }}</p>
-        </div>
-        <div class="card-stat" style="background: #eafaf1; border-left-color: #27ae60;">
-            <h3>Total Dépenses Personnelles</h3>
-            <p style="font-size: 20px; font-weight: bold; color: #27ae60;">€ {{ "%.2f"|format(total_personal) }}</p>
-        </div>
-    </div>
-
-    <form method="GET" action="/" class="inline-form" style="background: #f1f4f6;">
-        <input type="text" name="search" placeholder="Rechercher par Nom ou ID..." value="{{ search_query }}">
-        <button type="submit" style="background: #2980b9;">Rechercher</button>
-        {% if search_query %}
-            <a href="/" style="background: #e74c3c; color: white; padding: 10px 15px; border-radius: 5px; text-decoration: none; display:inline-block; line-height:normal;">Réinitialiser</a>
-        {% endif %}
+    <!-- نموذج الإضافة -->
+    <form id="productForm">
+        <input type="text" id="productName" placeholder="اسم المنتج" required>
+        <input type="text" id="addedBy" placeholder="المسؤول عن التسجيل" required>
+        <input type="text" id="missingItems" placeholder="الأمور الناقصة للتقييد">
+        <select id="status">
+            <option value="طلبناها">طلبناها</option>
+            <option value="موال">موال (جاهز)</option>
+            <option value="فالطريق">فالطريق</option>
+        </select>
+        <button type="submit">إضافة المنتج</button>
     </form>
 
-    <!-- SECTION 1: AJOUT PRODUIT (COLLAPSIBLE) -->
-    <div class="collapsible-section">
-        <button type="button" class="collapsible-btn" onclick="toggleSection('section-add-product')">
-            <span>➕ 1. Ajouter un Nouveau Produit / Facture (Cliquer pour ouvrir/fermer)</span>
-            <span>▼</span>
-        </button>
-        <div id="section-add-product" class="collapsible-content">
-            <form method="POST" action="/add" enctype="multipart/form-data" class="inline-form" style="margin-bottom:0; border:none; background:none; padding:0;">
-                <input type="text" name="name" placeholder="Nom du produit" required>
-                <input type="text" name="category" placeholder="Catégorie" required>
-                <input type="number" step="0.01" name="price" placeholder="Prix (€)" required>
-                <input type="number" name="quantity" placeholder="Quantité" value="1" required>
-                <select name="status">
-                    <option value="Disponible">Disponible</option>
-                    <option value="Reçu">Reçu</option>
-                </select>
-                <div style="flex:1; min-width:180px;">
-                    <label style="font-size:11px; display:block; color:#555;">Facture (JPG/PNG):</label>
-                    <input type="file" name="invoice" accept=".jpg, .jpeg, .png">
-                </div>
-                <button type="submit">Enregistrer</button>
-            </form>
-        </div>
-    </div>
-
-    <!-- SECTION 2: LISTE DES PRODUITS (COLLAPSIBLE SEPARÉMENT) -->
-    <div class="collapsible-section">
-        <button type="button" class="collapsible-btn" onclick="toggleSection('section-products-list')" style="background: #2980b9;">
-            <span>📦 2. Liste et Inventaire des Produits (Cliquer pour ouvrir/fermer)</span>
-            <span>▼</span>
-        </button>
-        <div id="section-products-list" class="collapsible-content active">
-            <div class="table-responsive">
-                <table>
-                    <thead>
-                        <tr>
-                            <th>ID</th>
-                            <th>Nom</th>
-                            <th>Catégorie</th>
-                            <th>Prix (€)</th>
-                            <th>Qté</th>
-                            <th>Statut</th>
-                            <th>Ajouté par</th>
-                            <th>Modifié par</th>
-                            <th>Facture</th>
-                            <th>Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for p in products %}
-                        <tr>
-                            <td>{{ p.id }}</td>
-                            <td>{{ p.name }}</td>
-                            <td>{{ p.category }}</td>
-                            <td>€ {{ "%.2f"|format(p.price) }}</td>
-                            <td>{{ p.quantity }}</td>
-                            <td>{{ p.status }}</td>
-                            <td>
-                                {% if p.added_by == 'hamza' %}
-                                    <span class="badge-hamza">hamza</span>
-                                {% else %}
-                                    <span class="badge-marouane">marouane</span>
-                                {% endif %}
-                            </td>
-                            <td>
-                                {% if p.get('last_edited_by') and p.last_edited_by != '-' %}
-                                    {% if p.last_edited_by == 'hamza' %}
-                                        <span class="badge-hamza">hamza</span>
-                                    {% else %}
-                                        <span class="badge-marouane">marouane</span>
-                                    {% endif %}
-                                {% else %}
-                                    -
-                                {% endif %}
-                            </td>
-                            <td>
-                                {% if p.invoice %}
-                                    <a href="{{ url_for('static', filename='uploads/' + p.invoice) }}" target="_blank">📄 Voir</a>
-                                {% else %}
-                                    -
-                                {% endif %}
-                            </td>
-                            <td>
-                                <div style="display: flex; gap: 5px; justify-content: center; flex-wrap: wrap;">
-                                    <a href="/edit_product/{{ p.id }}" class="btn-edit">✏️ Modifier</a>
-                                    <form action="/delete_product/{{ p.id }}" method="POST" style="margin:0; background:none; border:none; padding:0;" onsubmit="return confirm('Voulez-vous vraiment supprimer ce produit ?');">
-                                        <button type="submit" class="btn-danger">🗑️ Supprimer</button>
-                                    </form>
-                                </div>
-                            </td>
-                        </tr>
-                        {% else %}
-                        <tr><td colspan="10" style="color: #777;">Aucun produit trouvé.</td></tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-        </div>
-    </div>
-
-    <!-- SECTION 3: AJOUT DEPENSE (COLLAPSIBLE) -->
-    <div class="collapsible-section">
-        <button type="button" class="collapsible-btn" onclick="toggleSection('section-add-expense')" style="background: #d35400;">
-            <span>➕ 3. Ajouter une Dépense Personnelle (Cliquer pour ouvrir/fermer)</span>
-            <span>▼</span>
-        </button>
-        <div id="section-add-expense" class="collapsible-content">
-            <form method="POST" action="/add_expense" enctype="multipart/form-data" class="inline-form" style="margin-bottom:0; border:none; background:none; padding:0;">
-                <input type="date" name="date" required>
-                <input type="number" step="0.01" name="amount" placeholder="Montant (€)" required>
-                <input type="text" name="note" placeholder="Note / Description">
-                <div style="flex:1; min-width:180px;">
-                    <label style="font-size:11px; display:block; color:#555;">Justificatif (JPG/PDF):</label>
-                    <input type="file" name="invoice" accept=".jpg, .jpeg, .png, .pdf">
-                </div>
-                <button type="submit" style="background: #e67e22;">Ajouter Dépense</button>
-            </form>
-        </div>
-    </div>
-
-    <!-- SECTION 4: LISTE DES DEPENSES (COLLAPSIBLE SEPARÉMENT) -->
-    <div class="collapsible-section">
-        <button type="button" class="collapsible-btn" onclick="toggleSection('section-expenses-list')" style="background: #e67e22;">
-            <span>💰 4. Liste des Dépenses Personnelles (Cliquer pour ouvrir/fermer)</span>
-            <span>▼</span>
-        </button>
-        <div id="section-expenses-list" class="collapsible-content">
-            <div class="table-responsive">
-                <table>
-                    <thead>
-                        <tr>
-                            <th>ID</th>
-                            <th>Date</th>
-                            <th>Montant (€)</th>
-                            <th>Note</th>
-                            <th>Ajouté par</th>
-                            <th>Justificatif</th>
-                            <th>Action</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for exp in expenses %}
-                        <tr>
-                            <td>{{ exp.id }}</td>
-                            <td>{{ exp.date }}</td>
-                            <td>€ {{ "%.2f"|format(exp.amount) }}</td>
-                            <td>{{ exp.note }}</td>
-                            <td>
-                                {% if exp.added_by == 'hamza' %}
-                                    <span class="badge-hamza">hamza</span>
-                                {% else %}
-                                    <span class="badge-marouane">marouane</span>
-                                {% endif %}
-                            </td>
-                            <td>
-                                {% if exp.invoice %}
-                                    <a href="{{ url_for('static', filename='uploads/' + exp.invoice) }}" target="_blank">📄 Voir</a>
-                                {% else %}
-                                    -
-                                {% endif %}
-                            </td>
-                            <td>
-                                <form action="/delete_expense/{{ exp.id }}" method="POST" style="margin:0; background:none; border:none; padding:0;" onsubmit="return confirm('Voulez-vous vraiment supprimer cette dépense ?');">
-                                    <button type="submit" class="btn-danger">🗑 Supprimer</button>
-                                </form>
-                            </td>
-                        </tr>
-                        {% else %}
-                        <tr><td colspan="7" style="color: #777;">Aucune dépense enregistrée.</td></tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-        </div>
-    </div>
-
-    <h3 style="margin-top: 40px; color: #2c3e50;">📋 Journal d'activité (Qui a fait quoi ?)</h3>
-    <div class="log-box">
-        {% for log in logs %}
-            <div>[{{ log.timestamp }}] <b>{{ log.username }}</b> -> [{{ log.action }}: {{ log.details }}]</div>
-        {% else %}
-            <div>Aucune activité enregistrée pour le moment.</div>
-        {% endfor %}
-    </div>
+    <!-- جدول العرض -->
+    <table>
+        <thead>
+            <tr>
+                <th>اسم المنتج</th>
+                <th>سجله (المسؤول)</th>
+                <th>الأمور الناقصة</th>
+                <th>الحالة</th>
+                <th>إجراءات</th>
+            </tr>
+        </thead>
+        <tbody id="productTableBody">
+            <!-- سيتم تعبئة البيانات تلقائياً عبر JavaScript -->
+        </tbody>
+    </table>
 </div>
 
 <script>
-    function toggleSection(sectionId) {
-        var content = document.getElementById(sectionId);
-        if (content.classList.contains('active')) {
-            content.classList.remove('active');
-        } else {
-            content.classList.add('active');
-        }
+    // جلب البيانات المخزنة مسبقاً أو بدء مصفوفة فارغة
+    let products = JSON.parse(localStorage.getItem('mip_products')) || [];
+
+    const form = document.getElementById('productForm');
+    const tableBody = document.getElementById('productTableBody');
+
+    function renderTable() {
+        tableBody.innerHTML = '';
+        products.forEach((product, index) => {
+            let badgeClass = '';
+            if (product.status === 'طلبناها') badgeClass = 'badge-ordered';
+            else if (product.status === 'موال') badgeClass = 'badge-ready';
+            else if (product.status === 'فالطريق') badgeClass = 'badge-way';
+
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td>${product.name}</td>
+                <td>${product.addedBy}</td>
+                <td>${product.missingItems || 'لا توجد'}</td>
+                <td><span class="badge ${badgeClass}">${product.status}</span></td>
+                <td><button class="delete-btn" onclick="deleteProduct(${index})">حذف</button></td>
+            `;
+            tableBody.appendChild(row);
+        });
     }
+
+    form.addEventListener('submit', function(e) {
+        e.preventDefault();
+        
+        const newProduct = {
+            name: document.getElementById('productName').value,
+            addedBy: document.getElementById('addedBy').value,
+            missingItems: document.getElementById('missingItems').value,
+            status: document.getElementById('status').value
+        };
+
+        products.push(newProduct);
+        localStorage.setItem('mip_products', JSON.stringify(products));
+        
+        form.reset();
+        renderTable();
+    });
+
+    function deleteProduct(index) {
+        products.splice(index, 1);
+        localStorage.setItem('mip_products', JSON.stringify(products));
+        renderTable();
+    }
+
+    // التشغيل الأول لتعبئة الجدول
+    renderTable();
 </script>
+
 </body>
 </html>
-"""
-
-if __name__ == '__main__':
-    app.run(debug=True)
