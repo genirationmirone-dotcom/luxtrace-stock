@@ -6,7 +6,7 @@ import io
 
 app = Flask(__name__)
 
-# --- تعديل قاعدة البيانات لتشتغل مع Render (PostgreSQL) أو محلياً ---
+# --- إعداد قاعدة البيانات لتشتغل مع Render (PostgreSQL) أو محلياً ---
 database_url = os.environ.get('DATABASE_URL')
 if database_url and database_url.startswith('postgres://'):
     database_url = database_url.replace('postgres://', 'postgresql://', 1)
@@ -25,7 +25,7 @@ class User(db.Model):
     username = db.Column(db.String(50), unique=True, nullable=False)
     password = db.Column(db.String(100), nullable=False)
 
-# جدول المنتجات مع تتبع شكون زادو وشكون مسحو
+# جدول المنتجات
 class Product(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
@@ -46,12 +46,12 @@ class PersonalExpense(db.Model):
     invoice = db.Column(db.String(200), nullable=True)
     added_by = db.Column(db.String(50), nullable=True)
 
-# جدول سجل العمليات (History / Audit Log) لتتبع من أضاف ومن مسح بدقة
+# جدول سجل العمليات (History)
 class ActivityLog(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     timestamp = db.Column(db.String(30), nullable=False)
     username = db.Column(db.String(50), nullable=False)
-    action = db.Column(db.String(50), nullable=False) # 'AJOUT' أو 'SUPPRESSION'
+    action = db.Column(db.String(50), nullable=False)
     details = db.Column(db.String(255), nullable=False)
 
 with app.app_context():
@@ -215,7 +215,7 @@ def delete_product(id):
     current_user = session.get('username', 'Inconnu')
     product = Product.query.get_or_404(id)
     
-    log_action(current_user, "SUPPRESSION", f"Suppression du produit [ID: {product.id}] {product.name} (Ajouté initialement par: {product.added_by})")
+    log_action(current_user, "SUPPRESSION", f"Suppression du produit [ID: {product.id}] {product.name} (Ajouté par: {product.added_by})")
     
     db.session.delete(product)
     db.session.commit()
@@ -518,11 +518,10 @@ HTML_TEMPLATE = """
         </table>
     </div>
 
-    <!-- سجل الأنشطة والعمليات -->
     <h3 style="margin-top: 40px; color: #2c3e50;">📋 Journal d'activité (Qui a fait quoi ?)</h3>
     <div class="log-box">
         {% for log in logs %}
-            <div>[{{ log.timestamp }}] <b>{{ log.username }}</b> -> [{{ log.action }ل}]: {{ log.details }}</div>
+            <div>[{{ log.timestamp }}] <b>{{ log.username }}</b> -> [{{ log.action }}]: {{ log.details }}</div>
         {% else %}
             <div>Aucune activité enregistrée pour le moment.</div>
         {% endfor %}
