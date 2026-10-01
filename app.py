@@ -11,7 +11,6 @@ os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
 DATA_FILE = 'database_storage.json'
 
-# تحميل البيانات من ملف JSON
 def load_data():
     if not os.path.exists(DATA_FILE):
         initial_data = {
@@ -31,7 +30,6 @@ def load_data():
     except:
         return {"users": [{"username": "marouane", "password": "123"}, {"username": "hamza", "password": "123"}], "products": [], "expenses": [], "logs": []}
 
-# حفظ البيانات في ملف JSON
 def save_data(data):
     with open(DATA_FILE, 'w', encoding='utf-8') as f:
         json.dump(data, f, ensure_ascii=False, indent=4)
@@ -41,7 +39,6 @@ def log_action(username, action, details):
     now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     new_log = {"timestamp": now, "username": username, "action": action, "details": details}
     data["logs"].insert(0, new_log)
-    # الاحتفاظ فقط بآخر 50 نشاط
     data["logs"] = data["logs"][:50]
     save_data(data)
 
@@ -243,8 +240,6 @@ def export_report():
     if not session.get('logged_in'):
         return redirect(url_for('login'))
     data = load_data()
-    output = io_StringIO = csv_output()
-    # استخدام وحدة io لإنشاء ملف CSV
     import io
     output = io.StringIO()
     writer = csv.writer(output)
@@ -495,7 +490,7 @@ HTML_TEMPLATE = """
             <tbody>
                 {% for exp in expenses %}
                 <tr>
-                    <td>{{ exp.id }}</td>
+                    <td>`{{ exp.id }}`</td>
                     <td>{{ exp.date }}</td>
                     <td>€ {{ "%.2f"|format(exp.amount) }}</td>
                     <td>{{ exp.note }}</td>
@@ -515,7 +510,7 @@ HTML_TEMPLATE = """
                     </td>
                     <td>
                         <form action="/delete_expense/{{ exp.id }}" method="POST" style="margin:0; background:none; border:none; padding:0;" onsubmit="return confirm('Voulez-vous vraiment supprimer cette dépense ?');">
-                            <button type="submit" class="btn-danger">🗑️ Supprimer</button>
+                            <button type="submit" class="btn-danger">🗑️️ Supprimer</button>
                         </form>
                     </td>
                 </tr>
@@ -526,7 +521,7 @@ HTML_TEMPLATE = """
         </table>
     </div>
 
-    <h3 style="margin-top: 40px; code; color: #2c3e50;">📋 Journal d'activité (Qui a fait quoi ?)</h3>
+    <h3 style="margin-top: 40px; color: #2c3e50;">📋 Journal d'activité (Qui a fait quoi ?)</h3>
     <div class="log-box">
         {% for log in logs %}
             <div>[{{ log.timestamp }}] <b>{{ log.username }}</b> -> [{{ log.action }}]: {{ log.details }}</div>
@@ -540,4 +535,4 @@ HTML_TEMPLATE = """
 """
 
 if __name__ == '__main__':
-    app.run(debug=True)ٍ
+    app.run(debug=True)
