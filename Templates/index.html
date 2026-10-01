@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <title>تسيير المخزون - مشروع المفاتيح والعدّة</title>
+    <style>
+        body { font-family: Tahoma, sans-serif; background: #f4f4f9; padding: 20px; }
+        h1, h2 { color: #333; }
+        table { width: 100%; border-collapse: collapse; background: #fff; margin-top: 20px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+        th, td { border: 1px solid #ddd; padding: 10px; text-align: center; }
+        th { background: #007bff; color: white; }
+        form { background: #fff; padding: 15px; border-radius: 5px; margin-bottom: 20px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+        input, select { padding: 8px; margin: 5px; width: 200px; }
+        button { background: #28a745; color: white; border: none; padding: 10px 15px; cursor: pointer; border-radius: 4px; }
+        .total-box { background: #e2f0d9; padding: 15px; border-radius: 5px; margin-bottom: 20px; font-size: 18px; font-weight: bold; color: #385723; }
+    </style>
+</head>
+<body>
+    <h1>نظام تسيير السلعة والـ QR Code - مشروع مروان</h1>
+    
+    <div class="total-box">
+        المجموع الإجمالي للمصاريف (الفاتورة): {{ total_spent }} €
+    </div>
+
+    <!-- نموذج إضافة سلعة جديدة -->
+    <form action="/add" method="POST">
+        <h3>إضافة منتج جديد للستوك</h3>
+        <input type="text" name="name" placeholder="اسم المنتج" required>
+        <input type="text" name="category" placeholder="الصنف" required>
+        <input type="number" step="0.01" name="buy_price" placeholder="ثمن الشراء (€)" required>
+        <input type="number" step="0.01" name="sell_price" placeholder="ثمن البيع (€)" required>
+        <input type="number" name="quantity" placeholder="الكمية" required>
+        <select name="status">
+            <option value="متوفر (وصل)">متوفر (وصل)</option>
+            <option value="في الطريق (مُرتقب)">في الطريق (مُرتقب)</option>
+        </select>
+        <button type="submit">إضافة وتوليد QR</button>
+    </form>
+
+    <!-- جدول عرض المنتجات -->
+    <table>
+        <tr>
+            <th>المعرف</th>
+            <th>اسم المنتج</th>
+            <th>الصنف</th>
+            <th>ثمن الشراء (€)</th>
+            <th>الكمية</th>
+            <th>الحالة</th>
+            <th>QR Code</th>
+        </tr>
+        {% for p in products %}
+        <tr>
+            <td>{{ p.ID }}</td>
+            <td>{{ p.Name }}</td>
+            <td>{{ p.Category }}</td>
+            <td>{{ p.BuyPrice }} €</td>
+            <td>{{ p.Quantity }}</td>
+            <td>{{ p.Status }}</td>
+            <td><img src="{{ url_for('static', filename='qrs/product_' + p.ID|string + '.png') }}" width="60"></td>
+        </tr>
+        {% endfor %}
+    </table>
+</body>
+</html>
