@@ -162,7 +162,8 @@ def add_product():
         "quantity": quantity,
         "status": status,
         "invoice": invoice_filename,
-        "added_by": current_user
+        "added_by": current_user,
+        "last_edited_by": "-"
     }
     
     data["products"].append(new_p)
@@ -170,6 +171,52 @@ def add_product():
     
     log_action(current_user, "AJOUT", f"Ajout du produit: {name} (Prix: {price}€)")
     return redirect(url_for('index'))
+
+@app.route('/edit_product/<int:id>', methods=['GET', 'POST'])
+def edit_product(id):
+    if not session.get('logged_in'):
+        return redirect(url_for('login'))
+    
+    data = load_data()
+    product = next((p for p in data["products"] if p['id'] == id), None)
+    if not product:
+        return redirect(url_for('index'))
+        
+    current_user = session.get('username', 'Inconnu')
+    error = None
+    
+    if request.method == 'POST':
+        name = request.form.get('name', '').strip()
+        category = request.form.get('category', '').strip()
+        try:
+            price = float(request.form.get('price') or 0.0)
+            quantity = int(request.form.get('quantity') or 1)
+        except ValueError:
+            error = "Veuillez entrer des valeurs valides pour le prix et la quantité."
+            return render_template_string(EDIT_PRODUCT_TEMPLATE, product=product, error=error)
+            
+        status = request.form.get('status', 'Disponible')
+        
+        invoice_filename = product.get('invoice', '')
+        if 'invoice' in request.files:
+            inv_file = request.files['invoice']
+            if inv_file.filename != '':
+                invoice_filename = "inv_edit_" + inv_file.filename
+                inv_file.save(os.path.join(app.config['UPLOAD_FOLDER'], invoice_filename))
+                
+        product['name'] = name
+        product['category'] = category
+        product['price'] = price
+        product['quantity'] = quantity
+        product['status'] = status
+        product['invoice'] = invoice_filename
+        product['last_edited_by'] = current_user
+        
+        save_data(data)
+        log_action(current_user, "MODIFICATION", f"Modification du produit [ID: {id}] {name} (Modifié par {current_user})")
+        return redirect(url_for('index'))
+        
+    return render_template_string(EDIT_PRODUCT_TEMPLATE, product=product, error=error)
 
 @app.route('/add_expense', methods=['POST'])
 def add_expense():
@@ -243,9 +290,9 @@ def export_report():
     import io
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(['ID', 'Nom', 'Categorie', 'Prix', 'Quantite', 'Statut', 'Ajoute par'])
+    writer.writerow(['ID', 'Nom', 'Categorie', 'Prix', 'Quantite', 'Statut', 'Ajoute par', 'Dernier modificateur'])
     for p in data["products"]:
-        writer.writerow([p['id'], p['name'], p['category'], p['price'], p['quantity'], p['status'], p['added_by']])
+        writer.writerow([p['id'], p['name'], p['category'], p['price'], p['quantity'], p['status'], p['added_by'], p.get('last_edited_by', '-')])
     output.seek(0)
     return Response(output, mimetype="text/csv", headers={"Content-Disposition": "attachment;filename=Rapport_Stock.csv"})
 
@@ -322,6 +369,59 @@ CHANGE_PASSWORD_TEMPLATE = """
 </html>
 """
 
+EDIT_PRODUCT_TEMPLATE = """
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Modifier Produit - ID {{ product.id }}</title>
+    <style>
+        body { font-family: Arial, sans-serif; background: #2c3e50; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+        .card { background: white; padding: 30px; border-radius: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.3); width: 100%; max-width: 400px; }
+        h2 { color: #2c3e50; margin-bottom: 20px; text-align: center; }
+        label { font-size: 12px; color: #555; display: block; margin-top: 8px; }
+        input, select { width: 100%; padding: 10px; margin: 5px 0 10px 0; border: 1px solid #ccc; border-radius: 5px; box-sizing: border-box; }
+        button { background: #2980b9; color: white; border: none; padding: 12px; width: 100%; border-radius: 5px; cursor: pointer; font-weight: bold; font-size: 16px; margin-top: 10px; }
+        button:hover { background: #1f618d; }
+        .error { color: #e74c3c; font-size: 14px; margin-bottom: 10px; text-align: center; }
+        .link { margin-top: 15px; display: block; font-size: 14px; color: #2980b9; text-decoration: none; text-align: center; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h2>✏️ Modifier le Produit #{{ product.id }}</h2>
+        {% if error %}<div class="error">{{ error }}</div>{% endif %}
+        <form method="POST" enctype="multipart/form-data">
+            <label>Nom du produit :</label>
+            <input type="text" name="name" value="{{ product.name }}" required>
+            
+            <label>Catégorie :</label>
+            <input type="text" name="category" value="{{ product.category }}" required>
+            
+            <label>Prix (€) :</label>
+            <input type="number" step="0.01" name="price" value="{{ product.price }}" required>
+            
+            <label>Quantité :</label>
+            <input type="number" name="quantity" value="{{ product.quantity }}" required>
+            
+            <label>Statut :</label>
+            <select name="status">
+                <option value="Disponible" {% if product.status == 'Disponible' %}selected{% endif %}>Disponible</option>
+                <option value="Reçu" {% if product.status == 'Reçu' %}selected{% endif %}>Reçu</option>
+            </select>
+            
+            <label>Nouvelle Facture / Image (Optionnel) :</label>
+            <input type="file" name="invoice" accept=".jpg, .jpeg, .png">
+            
+            <button type="submit">Enregistrer les modifications</button>
+        </form>
+        <a href="/" class="link">⬅️ Annuler et retour</a>
+    </div>
+</body>
+</html>
+"""
+
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="fr">
@@ -348,11 +448,20 @@ HTML_TEMPLATE = """
         .card-stat { background: #e8f4f8; padding: 15px; border-radius: 8px; flex: 1; min-width: 200px; border-left: 5px solid #2980b9; }
         .btn-danger { background: #e74c3c; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 13px; text-decoration: none; }
         .btn-danger:hover { background: #c0392b; }
+        .btn-edit { background: #2980b9; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 13px; text-decoration: none; display: inline-block; }
+        .btn-edit:hover { background: #1f618d; }
         .btn-logout { background: #c0392b; color: white; padding: 8px 12px; border-radius: 5px; text-decoration: none; font-weight: bold; font-size: 13px; }
         .btn-pass { background: #e67e22; color: white; padding: 8px 12px; border-radius: 5px; text-decoration: none; font-weight: bold; font-size: 13px; }
-        .badge-marouane { background: #2980b9; color: white; padding: 4px 8px; border-radius: 12px; font-size: 12px; font-weight: bold; }
-        .badge-hamza { background: #8e44ad; color: white; padding: 4px 8px; border-radius: 12px; font-size: 12px; font-weight: bold; }
+        .badge-marouane { background: #2980b9; color: white; padding: 4px 8px; border-radius: 12px; font-size: 11px; font-weight: bold; }
+        .badge-hamza { background: #8e44ad; color: white; padding: 4px 8px; border-radius: 12px; font-size: 11px; font-weight: bold; }
         .log-box { background: #2c3e50; color: #ecf0f1; padding: 15px; border-radius: 8px; max-height: 200px; overflow-y: auto; font-family: monospace; font-size: 12px; margin-top: 30px; }
+        
+        /* Accordion / Collapsible Sections Style */
+        .collapsible-section { margin-bottom: 20px; border: 1px solid #cbd5e1; border-radius: 8px; overflow: hidden; background: #fff; }
+        .collapsible-btn { background: #34495e; color: white; cursor: pointer; padding: 15px 20px; width: 100%; border: none; text-align: left; outline: none; font-size: 16px; font-weight: bold; display: flex; justify-content: space-between; align-items: center; transition: background 0.3s; }
+        .collapsible-btn:hover { background: #2c3e50; }
+        .collapsible-content { padding: 20px; display: none; background: #fff; border-top: 1px solid #cbd5e1; }
+        .collapsible-content.active { display: block; }
     </style>
 </head>
 <body>
@@ -393,143 +502,188 @@ HTML_TEMPLATE = """
         {% endif %}
     </form>
 
-    <h2>Ajouter un Produit / Facture</h2>
-    <form method="POST" action="/add" enctype="multipart/form-data">
-        <input type="text" name="name" placeholder="Nom du produit" required>
-        <input type="text" name="category" placeholder="Catégorie" required>
-        <input type="number" step="0.01" name="price" placeholder="Prix (€)" required>
-        <input type="number" name="quantity" placeholder="Quantité" value="1" required>
-        <select name="status">
-            <option value="Disponible">Disponible</option>
-            <option value="Reçu">Reçu</option>
-        </select>
-        <div style="flex:1; min-width:180px;">
-            <label style="font-size:11px; display:block; color:#555;">Facture (JPG/PNG):</label>
-            <input type="file" name="invoice" accept=".jpg, .jpeg, .png">
-        </div>
-        <button type="submit">Enregistrer</button>
-    </form>
+    <!-- SECTION 1: PRODUITS & STOCK (COLLAPSIBLE) -->
+    <div class="collapsible-section">
+        <button type="button" class="collapsible-btn" onclick="toggleSection('section-products')">
+            <span>📦 1. Gestion des Produits & Inventaire (Cliquer pour ouvrir/fermer)</span>
+            <span>▼</span>
+        </button>
+        <div id="section-products" class="collapsible-content active">
+            <h3 style="margin-top:0; color:#2c3e50;">Ajouter un Produit / Facture</h3>
+            <form method="POST" action="/add" enctype="multipart/form-data">
+                <input type="text" name="name" placeholder="Nom du produit" required>
+                <input type="text" name="category" placeholder="Catégorie" required>
+                <input type="number" step="0.01" name="price" placeholder="Prix (€)" required>
+                <input type="number" name="quantity" placeholder="Quantité" value="1" required>
+                <select name="status">
+                    <option value="Disponible">Disponible</option>
+                    <option value="Reçu">Reçu</option>
+                </select>
+                <div style="flex:1; min-width:180px;">
+                    <label style="font-size:11px; display:block; color:#555;">Facture (JPG/PNG):</label>
+                    <input type="file" name="invoice" accept=".jpg, .jpeg, .png">
+                </div>
+                <button type="submit">Enregistrer</button>
+            </form>
 
-    <h2>Inventaire des Produits</h2>
-    <div class="table-responsive">
-        <table>
-            <thead>
-                <tr>
-                    <th>ID</th>
-                    <th>Nom</th>
-                    <th>Catégorie</th>
-                    <th>Prix (€)</th>
-                    <th>Quantité</th>
-                    <th>Statut</th>
-                    <th>Ajouté par</th>
-                    <th>Facture</th>
-                    <th>Action</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for p in products %}
-                <tr>
-                    <td>{{ p.id }}</td>
-                    <td>{{ p.name }}</td>
-                    <td>{{ p.category }}</td>
-                    <td>€ {{ "%.2f"|format(p.price) }}</td>
-                    <td>{{ p.quantity }}</td>
-                    <td>{{ p.status }}</td>
-                    <td>
-                        {% if p.added_by == 'hamza' %}
-                            <span class="badge-hamza">hamza</span>
+            <h3 style="color:#2c3e50;">Inventaire des Produits</h3>
+            <div class="table-responsive">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Nom</th>
+                            <th>Catégorie</th>
+                            <th>Prix (€)</th>
+                            <th>Qté</th>
+                            <th>Statut</th>
+                            <th>Ajouté par</th>
+                            <th>Modifié par</th>
+                            <th>Facture</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for p in products %}
+                        <tr>
+                            <td>{{ p.id }}</td>
+                            <td>{{ p.name }}</td>
+                            <td>{{ p.category }}</td>
+                            <td>€ {{ "%.2f"|format(p.price) }}</td>
+                            <td>{{ p.quantity }}</td>
+                            <td>{{ p.status }}</td>
+                            <td>
+                                {% if p.added_by == 'hamza' %}
+                                    <span class="badge-hamza">hamza</span>
+                                {% else %}
+                                    <span class="badge-marouane">marouane</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if p.get('last_edited_by') and p.last_edited_by != '-' %}
+                                    {% if p.last_edited_by == 'hamza' %}
+                                        <span class="badge-hamza">hamza</span>
+                                    {% else %}
+                                        <span class="badge-marouane">marouane</span>
+                                    {% endif %}
+                                {% else %}
+                                    -
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if p.invoice %}
+                                    <a href="{{ url_for('static', filename='uploads/' + p.invoice) }}" target="_blank">📄 Voir</a>
+                                {% else %}
+                                    -
+                                {% endif %}
+                            </td>
+                            <td>
+                                <div style="display: flex; gap: 5px; justify-content: center; flex-wrap: wrap;">
+                                    <a href="/edit_product/{{ p.id }}" class="btn-edit">✏️ Modifier</a>
+                                    <form action="/delete_product/{{ p.id }}" method="POST" style="margin:0; background:none; border:none; padding:0;" onsubmit="return confirm('Voulez-vous vraiment supprimer ce produit ?');">
+                                        <button type="submit" class="btn-danger">🗑️ Supprimer</button>
+                                    </form>
+                                </div>
+                            </td>
+                        </tr>
                         {% else %}
-                            <span class="badge-marouane">marouane</span>
-                        {% endif %}
-                    </td>
-                    <td>
-                        {% if p.invoice %}
-                            <a href="{{ url_for('static', filename='uploads/' + p.invoice) }}" target="_blank">📄 Voir</a>
-                        {% else %}
-                            -
-                        {% endif %}
-                    </td>
-                    <td>
-                        <form action="/delete_product/{{ p.id }}" method="POST" style="margin:0; background:none; border:none; padding:0;" onsubmit="return confirm('Voulez-vous vraiment supprimer ce produit ?');">
-                            <button type="submit" class="btn-danger">🗑️ Supprimer</button>
-                        </form>
-                    </td>
-                </tr>
-                {% else %}
-                <tr><td colspan="9" style="color: #777;">Aucun produit trouvé.</td></tr>
-                {% endfor %}
-            </tbody>
-        </table>
+                        <tr><td colspan="10" style="color: #777;">Aucun produit trouvé.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
     </div>
 
-    <h2 style="margin-top: 40px;">Gestion des Dépenses Personnelles</h2>
-    <form method="POST" action="/add_expense" enctype="multipart/form-data">
-        <input type="date" name="date" required>
-        <input type="number" step="0.01" name="amount" placeholder="Montant (€)" required>
-        <input type="text" name="note" placeholder="Note / Description">
-        <div style="flex:1; min-width:180px;">
-            <label style="font-size:11px; display:block; color:#555;">Justificatif (JPG/PDF):</label>
-            <input type="file" name="invoice" accept=".jpg, .jpeg, .png, .pdf">
-        </div>
-        <button type="submit" style="background: #e67e22;">Ajouter Dépense</button>
-    </form>
+    <!-- SECTION 2: DEPENSES PERSONNELLES (COLLAPSIBLE) -->
+    <div class="collapsible-section">
+        <button type="button" class="collapsible-btn" onclick="toggleSection('section-expenses')" style="background: #d35400;">
+            <span>💰 2. Gestion des Dépenses Personnelles (Cliquer pour ouvrir/fermer)</span>
+            <span>▼</span>
+        </button>
+        <div id="section-expenses" class="collapsible-content">
+            <h3 style="margin-top:0; color:#d35400;">Ajouter une Dépense Personnelle</h3>
+            <form method="POST" action="/add_expense" enctype="multipart/form-data">
+                <input type="date" name="date" required>
+                <input type="number" step="0.01" name="amount" placeholder="Montant (€)" required>
+                <input type="text" name="note" placeholder="Note / Description">
+                <div style="flex:1; min-width:180px;">
+                    <label style="font-size:11px; display:block; color:#555;">Justificatif (JPG/PDF):</label>
+                    <input type="file" name="invoice" accept=".jpg, .jpeg, .png, .pdf">
+                </div>
+                <button type="submit" style="background: #e67e22;">Ajouter Dépense</button>
+            </form>
 
-    <div class="table-responsive">
-        <table>
-            <thead>
-                <tr>
-                    <th>ID</th>
-                    <th>Date</th>
-                    <th>Montant (€)</th>
-                    <th>Note</th>
-                    <th>Ajouté par</th>
-                    <th>Justificatif</th>
-                    <th>Action</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for exp in expenses %}
-                <tr>
-                    <td>`{{ exp.id }}`</td>
-                    <td>{{ exp.date }}</td>
-                    <td>€ {{ "%.2f"|format(exp.amount) }}</td>
-                    <td>{{ exp.note }}</td>
-                    <td>
-                        {% if exp.added_by == 'hamza' %}
-                            <span class="badge-hamza">hamza</span>
+            <h3 style="color:#d35400;">Liste des Dépenses</h3>
+            <div class="table-responsive">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Date</th>
+                            <th>Montant (€)</th>
+                            <th>Note</th>
+                            <th>Ajouté par</th>
+                            <th>Justificatif</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for exp in expenses %}
+                        <tr>
+                            <td>{{ exp.id }}</td>
+                            <td>{{ exp.date }}</td>
+                            <td>€ {{ "%.2f"|format(exp.amount) }}</td>
+                            <td>{{ exp.note }}</td>
+                            <td>
+                                {% if exp.added_by == 'hamza' %}
+                                    <span class="badge-hamza">hamza</span>
+                                {% else %}
+                                    <span class="badge-marouane">marouane</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if exp.invoice %}
+                                    <a href="{{ url_for('static', filename='uploads/' + exp.invoice) }}" target="_blank">📄 Voir</a>
+                                {% else %}
+                                    -
+                                {% endif %}
+                            </td>
+                            <td>
+                                <form action="/delete_expense/{{ exp.id }}" method="POST" style="margin:0; background:none; border:none; padding:0;" onsubmit="return confirm('Voulez-vous vraiment supprimer cette dépense ?');">
+                                    <button type="submit" class="btn-danger">🗑 Supprimer</button>
+                                </form>
+                            </td>
+                        </tr>
                         {% else %}
-                            <span class="badge-marouane">marouane</span>
-                        {% endif %}
-                    </td>
-                    <td>
-                        {% if exp.invoice %}
-                            <a href="{{ url_for('static', filename='uploads/' + exp.invoice) }}" target="_blank">📄 Voir</a>
-                        {% else %}
-                            -
-                        {% endif %}
-                    </td>
-                    <td>
-                        <form action="/delete_expense/{{ exp.id }}" method="POST" style="margin:0; background:none; border:none; padding:0;" onsubmit="return confirm('Voulez-vous vraiment supprimer cette dépense ?');">
-                            <button type="submit" class="btn-danger">🗑️️ Supprimer</button>
-                        </form>
-                    </td>
-                </tr>
-                {% else %}
-                <tr><td colspan="7" style="color: #777;">Aucune dépense enregistrée.</td></tr>
-                {% endfor %}
-            </tbody>
-        </table>
+                        <tr><td colspan="7" style="color: #777;">Aucune dépense enregistrée.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
     </div>
 
     <h3 style="margin-top: 40px; color: #2c3e50;">📋 Journal d'activité (Qui a fait quoi ?)</h3>
     <div class="log-box">
         {% for log in logs %}
-            <div>[{{ log.timestamp }}] <b>{{ log.username }}</b> -> [{{ log.action }}]: {{ log.details }}</div>
+            <div>[{{ log.timestamp }}] <b>{{ log.username }}</b> -> [{{ log.action }}: {{ log.details }}]</div>
         {% else %}
             <div>Aucune activité enregistrée pour le moment.</div>
         {% endfor %}
     </div>
 </div>
+
+<script>
+    function toggleSection(sectionId) {
+        var content = document.getElementById(sectionId);
+        if (content.classList.contains('active')) {
+            content.classList.remove('active');
+        } else {
+            content.classList.add('active');
+        }
+    }
+</script>
 </body>
 </html>
 """
